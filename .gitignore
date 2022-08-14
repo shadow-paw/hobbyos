@@ -2,3 +2,7 @@ scripts/build-*
 scripts/binutils-*
 scripts/gcc-*
 scripts/gdb-*
+bin/
+dist/
+obj/
+.gdb_history
