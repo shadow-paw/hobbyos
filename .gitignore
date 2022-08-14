@@ -1,0 +1,4 @@
+scripts/build-*
+scripts/binutils-*
+scripts/gcc-*
+scripts/gdb-*
