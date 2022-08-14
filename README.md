@@ -45,3 +45,9 @@ docker run --rm -it --platform linux/amd64 --name osdev \
            && grub-mkrescue -o /mnt/data/myos.iso /mnt/data/iso"
 ```
 > Makefile will launch similar docker command on mac when building image.
+
+### Linter
+If you want to run the lint check (`make lint`), please install the linter:
+```
+sudo pip3 install cpplint
+```
