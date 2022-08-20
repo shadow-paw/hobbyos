@@ -208,10 +208,10 @@ $(KERNEL_PATH_OBJ)%_asm.o: $(KERNEL_PATH_SRC)%.asm Makefile
 	@$(CROSS_AS) $(CROSS_ASFLAGS) -I$(KERNEL_PATH_SRC) -MD $(KERNEL_PATH_OBJ)$*_asm.d -c $< -o $@
 $(KERNEL_PATH_OBJ)%_c.o: $(KERNEL_PATH_SRC)%.c Makefile
 	@echo "[CC  ] $<"
-	@$(CROSS_CC) $(CROSS_CCFLAGS) -I$(KERNEL_PATH_SRC) -I$(KERNEL_MACHINE_PATH_SRC) -MD -MP -c $< -o $@
+	@$(CROSS_CC) $(CROSS_CCFLAGS) -I$(KERNEL_PATH_SRC) -I$(KERNEL_MACHINE_PATH_SRC) -I$(KERNEL_ARCH_PATH_SRC) -MD -MP -c $< -o $@
 $(KERNEL_PATH_OBJ)%_cpp.o: $(KERNEL_PATH_SRC)%.cpp Makefile
 	@echo "[C++ ] $<"
-	@$(CROSS_CXX) $(CROSS_CXXFLAGS) -I$(KERNEL_PATH_SRC) -I$(KERNEL_MACHINE_PATH_SRC) -MD -MP -c $< -o $@
+	@$(CROSS_CXX) $(CROSS_CXXFLAGS) -I$(KERNEL_PATH_SRC) -I$(KERNEL_MACHINE_PATH_SRC) -I$(KERNEL_ARCH_PATH_SRC) -MD -MP -c $< -o $@
 # Kernel machine
 $(KERNEL_MACHINE_PATH_OBJ)%_asm.o: $(KERNEL_MACHINE_PATH_SRC)%.asm Makefile
 	@echo "[AS  ] $<"
@@ -235,7 +235,8 @@ $(KERNEL_ARCH_PATH_OBJ)%_cpp.o: $(KERNEL_ARCH_PATH_SRC)%.cpp Makefile
 
 kernel-lint:
 	@echo "[LINT] kernel"
-	@cpplint $(CPPLINTFLAGS) --root=src \
+	@cpplint $(CPPLINTFLAGS) --root=src --linelength=120 \
+	  --filter=-legal/copyright,-build/include_subdir,-readability/casting \
 	  $(KERNEL_CORE_H) $(KERNEL_CORE_C) $(KERNEL_CORE_CPP) \
 	  $(KERNEL_MACHINE_H) $(KERNEL_MACHINE_C) $(KERNEL_MACHINE_CPP) \
 	  $(KERNEL_ARCH_H) $(KERNEL_ARCH_C) $(KERNEL_ARCH_CPP)

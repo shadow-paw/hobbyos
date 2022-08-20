@@ -1,19 +1,16 @@
 .intel_syntax noprefix
+.include "kernel.inc"
+.include "tss.inc"
 
-.global _start
-.extern kmain, _kernel_end
+.global _start, tss
+.extern kmain, _kernel_end, idtr, _syscall_handler
 
-.equ KERNEL_BASE,  (0xFFFFFFFFC0000000)
-.equ KERNEL_PMA,   (0x00100000)
-.equ KERNEL_VMA,   (KERNEL_BASE + KERNEL_PMA)
-.equ SEG_CODE64_0, (0x08)
-.equ SEG_DATA64_0, (0x10)
-.equ SEG_CODE64_3, (0x18)
-.equ SEG_DATA64_3, (0x20)
-.equ SEG_TSS,      (0x28)
+// interrupt stack
+.equ IST_SIZE, 4096
 
 .section .bss
 .align 4096
+ist:        .fill 7 * IST_SIZE, 1, 0
 kstack:     .fill 8192, 1, 0
 kstack_end:
 mmu_pml4t:  .fill 4096, 1, 0
@@ -64,10 +61,10 @@ _start:
     jz .nolongmode
 
     // Setup simple page table
-    // Virtual 0~2M -> Physical 0-2M
-    // Virtual -1G +0~2M -> Physical 0-2M
+    // Virtual 0G + kernel end -> Physical 0G + kernel_end (kernel loaded addr)
+    // Virtual High + kernel_end -> Physical 0G + kernel_end (kernel high addr)
     mov     edi, offset mmu_pt - KERNEL_BASE
-    mov     ecx, 2 * 1024 * 1024
+    mov     ecx, offset _kernel_end - KERNEL_BASE
     mov     eax, 3
 .1:
     mov     [edi], eax
@@ -79,15 +76,21 @@ _start:
     // PDT
     mov     esi, offset mmu_pdt - KERNEL_BASE
     mov     dword ptr [esi + ((0>>21) & 511) *8], offset mmu_pt - KERNEL_BASE +3
+.if ((KERNEL_BASE>>21) & 511) != 0
     mov     dword ptr [esi + ((KERNEL_BASE>>21) & 511) *8], offset mmu_pt - KERNEL_BASE +3
+.endif
     // PDPT
     mov     esi, offset mmu_pdpt - KERNEL_BASE
     mov     dword ptr [esi + ((0>>30) & 511) *8], offset mmu_pdt - KERNEL_BASE +3
+.if ((KERNEL_BASE>>30) & 511) != 0
     mov     dword ptr [esi + ((KERNEL_BASE>>30) & 511) *8], offset mmu_pdt - KERNEL_BASE +3
+.endif
     // PML4T
     mov     esi, offset mmu_pml4t - KERNEL_BASE
     mov     dword ptr [esi + ((0>>39) & 511) *8], offset mmu_pdpt - KERNEL_BASE +3
+.if ((KERNEL_BASE>>39) & 511) != 0
     mov     dword ptr [esi + ((KERNEL_BASE>>39) & 511) *8], offset mmu_pdpt - KERNEL_BASE +3
+.endif
     // Disable paging
     mov     eax, cr0
     and     eax, 0x7FFFFFFF
@@ -106,8 +109,8 @@ _start:
     mov     eax, cr0
     or      eax, 1<<31
     mov     cr0, eax
-    // Load GDT with low address as we still at 32-bit compatibility mode
-    lgdt    [gdtr32 - KERNEL_BASE]
+    // Load GDT with low address as we still at long compatibility mode
+    lgdt    [gdtr32 - KERNEL_BASE] // 101010
     mov     eax, SEG_DATA64_0
     mov     ds, ax
     jmp     SEG_CODE64_0:.reloadcs - KERNEL_BASE
@@ -142,7 +145,62 @@ _start:
 .endif
     mov     rsi, cr3
     mov     cr3, rsi
-
+    // IDT & Exception handler
+    call    cpuex_init
+    mov     rdi, offset idtr
+    lidt    [rdi]
+    // TSS
+    mov     rdi, offset gdt
+    mov     rsi, offset tss
+    mov     rdx, offset ist + IST_SIZE
+    mov     [rsi + tss64.ist1], rdx
+    add     rdx, IST_SIZE
+    mov     [rsi + tss64.ist2], rdx
+    add     rdx, IST_SIZE
+    mov     [rsi + tss64.ist3], rdx
+    add     rdx, IST_SIZE
+    mov     [rsi + tss64.ist4], rdx
+    add     rdx, IST_SIZE
+    mov     [rsi + tss64.ist5], rdx
+    add     rdx, IST_SIZE
+    mov     [rsi + tss64.ist6], rdx
+    add     rdx, IST_SIZE
+    mov     [rsi + tss64.ist7], rdx
+    mov     edx, esi
+    mov     eax, esi
+    mov     ebx, esi
+    shl     eax, 16
+    or      eax, 103                            // eax = Base[15..00] Limit[15..00]
+    shr     edx, 16
+    and     ebx, 0xFF000000
+    and     edx, 0x000000FF
+    or      edx, ebx
+    or      edx, 0x00008900                     // [G=0][AVL=0][P][DPL=0][TYPE=1001][00]
+    shr     rsi, 32
+    mov     [rdi + SEG_TSS], eax
+    mov     [rdi + SEG_TSS+4], edx
+    mov     [rdi + SEG_TSS+8], esi
+    mov     dword ptr [rdi + SEG_TSS+12], 0
+    mov     eax, SEG_TSS
+    ltr     ax
+    // syscall
+    mov     ecx, 0xC0000080
+    rdmsr
+    or      eax, 1<<0           // IA32_EFER.SCE Syscall Enabled
+    wrmsr
+    mov     ecx, 0xC0000081     // IA32_STAR
+    xor     eax, eax
+    mov     edx, ((SEG_CODE32_3+3) <<16) | SEG_CODE64_0
+    wrmsr
+    mov     ecx, 0xC0000082     // IA32_LSTAR
+    mov     rax, offset _syscall_handler
+    mov     rdx, rax
+    shr     rdx, 32
+    wrmsr
+    mov     ecx, 0xC0000084     // IA32_FMASK
+    mov     eax, 0x0200         // IF
+    xor     edx, edx
+    wrmsr
     // Setup minimal C environment
     xor     rbp, rbp
     // constructors
