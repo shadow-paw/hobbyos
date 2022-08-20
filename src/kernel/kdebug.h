@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-void kdebug(const char* text);
+void kdebug(const char* fmt, ...);
 
 #ifdef __cplusplus
 }  // extern "C"

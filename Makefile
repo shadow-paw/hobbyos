@@ -235,7 +235,8 @@ $(KERNEL_ARCH_PATH_OBJ)%_cpp.o: $(KERNEL_ARCH_PATH_SRC)%.cpp Makefile
 
 kernel-lint:
 	@echo "[LINT] kernel"
-	@cpplint $(CPPLINTFLAGS) --root=src \
+	@cpplint $(CPPLINTFLAGS) --root=src --linelength=120 \
+	  --filter=-legal/copyright,-build/include_subdir,-readability/casting \
 	  $(KERNEL_CORE_H) $(KERNEL_CORE_C) $(KERNEL_CORE_CPP) \
 	  $(KERNEL_MACHINE_H) $(KERNEL_MACHINE_C) $(KERNEL_MACHINE_CPP) \
 	  $(KERNEL_ARCH_H) $(KERNEL_ARCH_C) $(KERNEL_ARCH_CPP)

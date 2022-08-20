@@ -1,16 +1,9 @@
 .intel_syntax noprefix
+.include "kernel.inc"
+.include "tss.inc"
 
 .global _start
-.extern kmain, _kernel_end
-
-.equ KERNEL_BASE,  (0xC0000000)
-.equ KERNEL_PMA,   (0x00100000)
-.equ KERNEL_VMA,   (KERNEL_BASE + KERNEL_PMA)
-.equ SEG_CODE32_0, (0x08)
-.equ SEG_DATA32_0, (0x10)
-.equ SEG_CODE32_3, (0x18)
-.equ SEG_DATA32_3, (0x20)
-.equ SEG_TSS,      (0x28)
+.extern kmain, _kernel_end, idtr, _syscall_handler
 
 .section .bss
 .align 4096
@@ -22,9 +15,9 @@ tss:        .fill 104, 1, 0
 
 .section .rodata
 .align 16
-gdtr:
-    .short 6 * 8 -1
-    .int   offset gdt
+gdtr:   .short 6 * 8 -1
+        .int   offset gdt
+        .short 0
 
 .align 16
 gdt:
@@ -44,14 +37,10 @@ _start:
     // The multiboot information should be passed to kmain.
 
     // Setup page tables
-    // Virtual 0G +4M -> Physical 0G +4M (kernel loaded addr)
-    // Virtual 3G +4M -> Physical 0G +4M (kernel high addr)
-    mov     esi, offset mmu_pdt - KERNEL_BASE
-    mov     edi, offset mmu_pt - KERNEL_BASE
-    // PDT: both PMA and VMA points to the PTs
-    mov     dword ptr [esi + (KERNEL_PMA>>22)*4], offset mmu_pt - KERNEL_BASE +3
-    mov     dword ptr [esi + (KERNEL_VMA>>22)*4], offset mmu_pt - KERNEL_BASE +3
+    // Virtual 0G + kernel end -> Physical 0G + kernel_end (kernel loaded addr)
+    // Virtual 3G + kernel_end -> Physical 0G + kernel_end (kernel high addr)
     // PT: iterate all 4k pages until kernel end
+    mov     edi, offset mmu_pt - KERNEL_BASE
     mov     ecx, offset _kernel_end - KERNEL_BASE
     mov     eax, 3
 .1:
@@ -59,6 +48,10 @@ _start:
     add     eax, 4096
     cmp     eax, ecx
     jb      .1
+    // PDT: both PMA and VMA points to the PTs
+    mov     esi, offset mmu_pdt - KERNEL_BASE
+    mov     dword ptr [esi + (KERNEL_PMA>>22)*4], offset mmu_pt - KERNEL_BASE +3
+    mov     dword ptr [esi + (KERNEL_VMA>>22)*4], offset mmu_pt - KERNEL_BASE +3
     // Enable paging
     mov     cr3, esi
     mov     eax, cr0
@@ -78,6 +71,27 @@ _start:
     // Unmap 1M
     mov     dword ptr [esi + (KERNEL_PMA>>22)*4], 0
     mov     cr3, esi
+    // IDT
+    lidt    [idtr]
+    // TSS
+    mov     dword ptr [tss + tss32.ss0], SEG_DATA32_0
+    mov     dword ptr [tss + tss32.esp0], esp
+    mov     eax, tss
+    shl     eax, 16
+    or      eax, 0x67                // [Base 15..00][Limit 15..00]
+    mov     [gdt + SEG_TSS], eax
+    mov     eax, offset tss
+    mov     edx, offset tss
+    shr     edx, 16
+    and     eax, 0xFF000000
+    and     edx, 0x000000FF
+    or      eax, edx
+    or      eax, 0x00008900
+    mov     [gdt + SEG_TSS +4], eax
+    mov     eax, SEG_TSS
+    ltr     ax
+    // syscall
+    call_idt_set    0x80, _syscall_handler, 0b1110111000000000  // P DPL=3 TYPE=1110
     // Setup minimal C environment
     xor     ebp, ebp
     // constructors
