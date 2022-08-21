@@ -2,15 +2,15 @@
 .include "kernel.inc"
 .include "tss.inc"
 
-.global _start
+.global _start, mmu_pml2t
 .extern kmain, _kernel_end, idtr, _syscall_handler
 
 .section .bss
 .align 4096
 kstack:     .fill 8192, 1, 0
 kstack_end:
-mmu_pdt:    .fill 4096, 1, 0
-mmu_pt:     .fill 4096, 1, 0
+mmu_pml2t:  .fill 4096, 1, 0
+mmu_pml1t:  .fill 4096, 1, 0
 tss:        .fill 104, 1, 0
 
 .section .rodata
@@ -40,7 +40,7 @@ _start:
     // Virtual 0G + kernel end -> Physical 0G + kernel_end (kernel loaded addr)
     // Virtual 3G + kernel_end -> Physical 0G + kernel_end (kernel high addr)
     // PT: iterate all 4k pages until kernel end
-    mov     edi, offset mmu_pt - KERNEL_BASE
+    mov     edi, offset mmu_pml1t - KERNEL_BASE
     mov     ecx, offset _kernel_end - KERNEL_BASE
     mov     eax, 3
 .1:
@@ -49,9 +49,9 @@ _start:
     cmp     eax, ecx
     jb      .1
     // PDT: both PMA and VMA points to the PTs
-    mov     esi, offset mmu_pdt - KERNEL_BASE
-    mov     dword ptr [esi + (KERNEL_PMA>>22)*4], offset mmu_pt - KERNEL_BASE +3
-    mov     dword ptr [esi + (KERNEL_VMA>>22)*4], offset mmu_pt - KERNEL_BASE +3
+    mov     esi, offset mmu_pml2t - KERNEL_BASE
+    mov     dword ptr [esi + (KERNEL_PMA>>22)*4], offset mmu_pml1t - KERNEL_BASE +3
+    mov     dword ptr [esi + (KERNEL_VMA>>22)*4], offset mmu_pml1t - KERNEL_BASE +3
     // Enable paging
     mov     cr3, esi
     mov     eax, cr0

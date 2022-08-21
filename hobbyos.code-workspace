@@ -23,7 +23,8 @@
                 ],
                 "files.eol": "\n",
                 "files.associations": {
-                        "kdebug.h": "c"
+                        "kdebug.h": "c",
+                        "multiboot.h": "c"
                 }
         }
 }
