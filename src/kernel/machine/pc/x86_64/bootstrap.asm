@@ -2,7 +2,7 @@
 .include "kernel.inc"
 .include "tss.inc"
 
-.global _start, tss
+.global _start, tss, mmu_pml4t, mmu_pml3t, mmu_pml2t
 .extern kmain, _kernel_end, idtr, _syscall_handler
 
 // interrupt stack
@@ -14,9 +14,9 @@ ist:        .fill 7 * IST_SIZE, 1, 0
 kstack:     .fill 8192, 1, 0
 kstack_end:
 mmu_pml4t:  .fill 4096, 1, 0
-mmu_pdpt:   .fill 4096, 1, 0
-mmu_pdt:    .fill 4096, 1, 0
-mmu_pt:     .fill 4096, 1, 0
+mmu_pml3t:  .fill 4096, 1, 0
+mmu_pml2t:  .fill 4096, 1, 0
+mmu_pml1t:  .fill 4096, 1, 0
 tss:        .fill 104, 1, 0
 
 .section .rodata
@@ -50,20 +50,23 @@ _start:
     // preserved when calling ctor/dtor (cdecl convention).
     // The multiboot information should be passed to kmain.
 
+    // preserve ebx
+    mov     ebp, ebx
+
     // Make sure we got long mode
     mov     eax, 0x80000000
     cpuid
     cmp     eax, 0x80000001
     jb .nolongmode
-    mov eax, 0x80000001
+    mov     eax, 0x80000001
     cpuid
-    test edx, 1 << 29
+    test    edx, 1 << 29
     jz .nolongmode
 
     // Setup simple page table
     // Virtual 0G + kernel end -> Physical 0G + kernel_end (kernel loaded addr)
     // Virtual High + kernel_end -> Physical 0G + kernel_end (kernel high addr)
-    mov     edi, offset mmu_pt - KERNEL_BASE
+    mov     edi, offset mmu_pml1t - KERNEL_BASE
     mov     ecx, offset _kernel_end - KERNEL_BASE
     mov     eax, 3
 .1:
@@ -74,22 +77,22 @@ _start:
     cmp     eax, ecx
     jb      .1
     // PDT
-    mov     esi, offset mmu_pdt - KERNEL_BASE
-    mov     dword ptr [esi + ((0>>21) & 511) *8], offset mmu_pt - KERNEL_BASE +3
+    mov     esi, offset mmu_pml2t - KERNEL_BASE
+    mov     dword ptr [esi + ((0>>21) & 511) *8], offset mmu_pml1t - KERNEL_BASE +3
 .if ((KERNEL_BASE>>21) & 511) != 0
-    mov     dword ptr [esi + ((KERNEL_BASE>>21) & 511) *8], offset mmu_pt - KERNEL_BASE +3
+    mov     dword ptr [esi + ((KERNEL_BASE>>21) & 511) *8], offset mmu_pml1t - KERNEL_BASE +3
 .endif
     // PDPT
-    mov     esi, offset mmu_pdpt - KERNEL_BASE
-    mov     dword ptr [esi + ((0>>30) & 511) *8], offset mmu_pdt - KERNEL_BASE +3
+    mov     esi, offset mmu_pml3t - KERNEL_BASE
+    mov     dword ptr [esi + ((0>>30) & 511) *8], offset mmu_pml2t - KERNEL_BASE +3
 .if ((KERNEL_BASE>>30) & 511) != 0
-    mov     dword ptr [esi + ((KERNEL_BASE>>30) & 511) *8], offset mmu_pdt - KERNEL_BASE +3
+    mov     dword ptr [esi + ((KERNEL_BASE>>30) & 511) *8], offset mmu_pml2t - KERNEL_BASE +3
 .endif
     // PML4T
     mov     esi, offset mmu_pml4t - KERNEL_BASE
-    mov     dword ptr [esi + ((0>>39) & 511) *8], offset mmu_pdpt - KERNEL_BASE +3
+    mov     dword ptr [esi + ((0>>39) & 511) *8], offset mmu_pml3t - KERNEL_BASE +3
 .if ((KERNEL_BASE>>39) & 511) != 0
-    mov     dword ptr [esi + ((KERNEL_BASE>>39) & 511) *8], offset mmu_pdpt - KERNEL_BASE +3
+    mov     dword ptr [esi + ((KERNEL_BASE>>39) & 511) *8], offset mmu_pml3t - KERNEL_BASE +3
 .endif
     // Disable paging
     mov     eax, cr0
@@ -138,10 +141,10 @@ _start:
     mov     [mmu_pml4t], rax
 .endif
 .if ((KERNEL_BASE>>30) & 511) != 0
-    mov     [mmu_pdpt], rax
+    mov     [mmu_pml3t], rax
 .endif
 .if ((KERNEL_BASE>>21) & 511) != 0
-    mov     [mmu_pdt], rax
+    mov     [mmu_pml2t], rax
 .endif
     mov     rsi, cr3
     mov     cr3, rsi
@@ -168,13 +171,13 @@ _start:
     mov     [rsi + tss64.ist7], rdx
     mov     edx, esi
     mov     eax, esi
-    mov     ebx, esi
+    mov     ecx, esi
     shl     eax, 16
     or      eax, 103                            // eax = Base[15..00] Limit[15..00]
     shr     edx, 16
-    and     ebx, 0xFF000000
+    and     ecx, 0xFF000000
     and     edx, 0x000000FF
-    or      edx, ebx
+    or      edx, ecx
     or      edx, 0x00008900                     // [G=0][AVL=0][P][DPL=0][TYPE=1001][00]
     shr     rsi, 32
     mov     [rdi + SEG_TSS], eax
@@ -202,6 +205,7 @@ _start:
     xor     edx, edx
     wrmsr
     // Setup minimal C environment
+    mov     edi, ebp            // multiboot
     xor     rbp, rbp
     // constructors
     mov     rsi, offset ctor_start
@@ -220,9 +224,7 @@ _start:
     jmp     .ctors_next
 .ctors_done:
     // invoke kmain
-    mov     rcx, rbx
-    add     rcx, KERNEL_BASE // multiboot info, convert to VMA
-    xor     rbx, rbx
+    add     rdi, KERNEL_BASE // multiboot info, convert to VMA
     call    kmain
     // destructors
     mov     rsi, offset dtor_end

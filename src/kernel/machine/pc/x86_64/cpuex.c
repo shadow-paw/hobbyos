@@ -54,10 +54,6 @@ void CPUEX_0D(uint64_t code, uint64_t ip) {
     kdebug("CPUEX0D : #GP General Protection Exception. IP: %X CODE:%d\n", ip, code);
     __asm volatile("cli; hlt");
 }
-void CPUEX_0E(uint64_t code, uint64_t addr, uint64_t ip) {
-    kdebug("CPUEX0D : #PF Page Fault Exception. IP: %X CODE:%d ADDR:%p\n", ip, code, addr);
-    __asm volatile("cli; hlt");
-}
 void CPUEX_10(void) {
     kdebug("CPUEX10 : #MF x87 FPU Floating-PoCPUEX Error.\n");
     __asm volatile("cli; hlt");
